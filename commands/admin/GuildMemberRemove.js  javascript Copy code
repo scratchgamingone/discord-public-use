@@ -1,0 +1,26 @@
+// commands/admin/GuildMemberRemove.js
+const { ChannelType } = require('discord.js');
+
+module.exports = {
+  name: 'GuildMemberRemove',
+  async execute(member) {
+    const guild = member.guild;
+    const userName = member.user.username;
+
+    // Find the category named after the user
+    const category = guild.channels.cache.find(
+      (channel) =>
+        channel.type === ChannelType.GuildCategory &&
+        channel.name === `${userName}'s Space`
+    );
+
+    if (category) {
+      // Delete all channels within the category
+      for (const channel of category.children.cache.values()) {
+        await channel.delete().catch(console.error);
+      }
+      // Delete the category
+      await category.delete().catch(console.error);
+    }
+  },
+};
