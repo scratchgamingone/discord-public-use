@@ -1,0 +1,150 @@
+const { SlashCommandBuilder } = require('discord.js');
+
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('connectfour')
+    .setDescription('Start a game of Connect Four with another user.')
+    .addUserOption(option =>
+      option.setName('opponent')
+        .setDescription('The user you want to challenge')
+        .setRequired(true)),
+  async execute(interaction) {
+    const opponent = interaction.options.getUser('opponent');
+    const challenger = interaction.user;
+
+    if (opponent.bot) {
+      return interaction.reply({ content: 'You cannot challenge bots.', ephemeral: true });
+    }
+
+    if (opponent.id === challenger.id) {
+      return interaction.reply({ content: 'You cannot challenge yourself.', ephemeral: true });
+    }
+
+    // Initialize game state
+    const game = {
+      board: Array.from({ length: 6 }, () => Array(7).fill('⚪')),
+      players: [challenger, opponent],
+      symbols: ['🔴', '🟡'],
+      currentPlayer: 0,
+      isGameOver: false,
+    };
+
+    // Function to render the board
+    const renderBoard = () => {
+      let boardString = '';
+      for (const row of game.board) {
+        boardString += row.join('') + '\n';
+      }
+      boardString += '1️⃣2️⃣3️⃣4️⃣5️⃣6️⃣7️⃣';
+      return boardString;
+    };
+
+    // Function to check for a win
+    const checkWin = (symbol) => {
+      const directions = [
+        { x: 0, y: 1 },  // vertical
+        { x: 1, y: 0 },  // horizontal
+        { x: 1, y: 1 },  // diagonal down-right
+        { x: 1, y: -1 }, // diagonal up-right
+      ];
+
+      for (let row = 0; row < 6; row++) {
+        for (let col = 0; col < 7; col++) {
+          if (game.board[row][col] !== symbol) continue;
+          for (const { x, y } of directions) {
+            let count = 1;
+            let r = row + y;
+            let c = col + x;
+            while (
+              r >= 0 && r < 6 &&
+              c >= 0 && c < 7 &&
+              game.board[r][c] === symbol
+            ) {
+              count++;
+              if (count === 4) return true;
+              r += y;
+              c += x;
+            }
+          }
+        }
+      }
+      return false;
+    };
+
+    // Function to check for a draw
+    const checkDraw = () => {
+      return game.board[0].every(cell => cell !== '⚪');
+    };
+
+    // Send initial game message
+    const message = await interaction.reply({
+      content: `🎮 Connect Four: ${game.players[0]} vs ${game.players[1]}\n${game.players[game.currentPlayer]}'s turn (${game.symbols[game.currentPlayer]})\n\n${renderBoard()}`,
+      fetchReply: true,
+    });
+
+    // Add reactions for columns
+    const emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣'];
+    for (const emoji of emojis) {
+      await message.react(emoji);
+    }
+
+    // Create a reaction collector
+    const filter = (reaction, user) => {
+      return emojis.includes(reaction.emoji.name) &&
+             user.id === game.players[game.currentPlayer].id;
+    };
+
+    const collector = message.createReactionCollector({ filter, time: 60000 });
+
+    collector.on('collect', async (reaction, user) => {
+      const col = emojis.indexOf(reaction.emoji.name);
+      // Find the lowest empty spot in the column
+      let placed = false;
+      for (let row = 5; row >= 0; row--) {
+        if (game.board[row][col] === '⚪') {
+          game.board[row][col] = game.symbols[game.currentPlayer];
+          placed = true;
+          break;
+        }
+      }
+
+      if (!placed) {
+        await reaction.users.remove(user.id);
+        return;
+      }
+
+      // Check for win
+      if (checkWin(game.symbols[game.currentPlayer])) {
+        game.isGameOver = true;
+        collector.stop();
+        return message.edit({
+          content: `🎉 ${game.players[game.currentPlayer]} wins!\n\n${renderBoard()}`,
+        });
+      }
+
+      // Check for draw
+      if (checkDraw()) {
+        game.isGameOver = true;
+        collector.stop();
+        return message.edit({
+          content: `It's a draw!\n\n${renderBoard()}`,
+        });
+      }
+
+      // Switch turns
+      game.currentPlayer = 1 - game.currentPlayer;
+      await message.edit({
+        content: `🎮 Connect Four: ${game.players[0]} vs ${game.players[1]}\n${game.players[game.currentPlayer]}'s turn (${game.symbols[game.currentPlayer]})\n\n${renderBoard()}`,
+      });
+
+      // Remove user's reaction
+      await reaction.users.remove(user.id);
+    });
+
+    collector.on('end', () => {
+      if (!game.isGameOver) {
+        message.edit({ content: 'Game ended due to inactivity.' });
+      }
+    });
+  },
+};
